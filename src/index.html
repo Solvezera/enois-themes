@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <title>Énóis Themes</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <div class="app">
+    <header class="topbar">
+      <div class="brand">
+        <svg class="brand-icon" viewBox="0 0 24 24" fill="currentColor"><path d="M13 2 3 14h8l-1 8 10-12h-8l1-8z"/></svg>
+        <div class="brand-text"><span class="brand-name">Énóis</span><span class="brand-sub">Themes</span></div>
+      </div>
+      <div class="topbar-right">
+        <span id="auth-status" class="env-badge env-logged-out">
+          <span class="env-dot"></span>
+          <span id="auth-status-label">Não autenticado</span>
+        </span>
+      </div>
+    </header>
+    <div class="layout">
+      <aside class="sidebar">
+        <div class="sidebar-tabs">
+          <button class="sidebar-tab active" data-sidebar-tab="endpoints">Endpoints</button>
+          <button class="sidebar-tab" data-sidebar-tab="history">Histórico <span class="history-count" id="history-count">0</span></button>
+        </div>
+        <div class="sidebar-pane active" data-sidebar-pane="endpoints">
+          <div class="sidebar-search"><input type="search" id="search" placeholder="Buscar endpoints..." /></div>
+          <nav id="collections" class="collections"></nav>
+        </div>
+        <div class="sidebar-pane" data-sidebar-pane="history">
+          <div id="history-list" class="history-list"><div class="history-empty">Nenhum request ainda.</div></div>
+          <button id="clear-history" class="clear-history-btn">Limpar histórico</button>
+        </div>
+      </aside>
+      <main class="main">
+        <section class="panel request-panel">
+          <div class="request-bar">
+            <select id="method" class="method-select"><option>GET</option><option>POST</option><option>PUT</option><option>PATCH</option><option>DELETE</option></select>
+            <input id="url" class="url-input" type="text" placeholder="https://enois.ia.br/api/..." />
+            <button id="send" class="send-btn"><span class="send-label">Enviar</span></button>
+          </div>
+          <nav class="tabs" data-tabs="request">
+            <button class="tab active" data-tab="body">Body</button>
+            <button class="tab" data-tab="headers">Headers</button>
+            <button class="tab" data-tab="auth">Auth</button>
+          </nav>
+          <div class="tab-content" id="request-tab-content">
+            <div data-tab-content="body">
+              <div class="body-toolbar">
+                <select id="preset-select" class="preset-select hidden" title="Carregar um tema pronto">
+                  <option value="">🎭 Preset</option>
+                </select>
+                <button id="format-json" class="mini-btn" title="Formatar JSON (Ctrl+S)">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="icon-sm">
+                    <path d="M4 7V4h16v3"/><path d="M9 20h6"/><path d="M12 4v16"/>
+                  </svg>
+                  Formatar
+                </button>
+                <span id="draft-status" class="draft-status"></span>
+              </div>
+              <div class="code-editor">
+                <div class="line-numbers" id="body-line-numbers" aria-hidden="true"></div>
+                <div class="code-scroll">
+                  <pre id="body-highlight" class="code-highlight" aria-hidden="true"></pre>
+                  <textarea id="body" class="code-input" spellcheck="false" placeholder='{&#10;  "chave": "valor"&#10;}'></textarea>
+                </div>
+              </div>
+            </div>
+            <div data-tab-content="headers" class="hidden">
+              <textarea id="extra-headers" class="code-input" placeholder="Content-Type: application/json&#10;X-Custom: value"></textarea>
+              <p class="hint">Um header por linha, no formato <code>Nome: valor</code></p>
+            </div>
+            <div data-tab-content="auth" class="hidden">
+              <label class="field">
+                <span class="field-label">X-Session-Token</span>
+                <input id="token" type="text" placeholder="Cole aqui o token retornado pelo /auth/login" />
+              </label>
+              <label class="field" id="idempotency-field">
+                <span class="field-label">Idempotency-Key</span>
+                <div class="field-row">
+                  <input id="idempotency" type="text" placeholder="Gerada automaticamente" />
+                  <button id="regen-key" class="icon-btn" title="Gerar novo UUID">↻</button>
+                </div>
+              </label>
+              <button id="clear-token" class="link-btn">Esquecer token salvo</button>
+            </div>
+            <div data-tab-content="preview" class="hidden">
+              <div class="theme-preview-wrapper">
+                <div class="theme-preview-info">
+                  <span class="theme-preview-source" id="theme-preview-source"><span class="dot"></span><span id="theme-preview-source-text">Aguardando tema...</span></span>
+                  <span class="theme-preview-name" id="theme-preview-name"></span>
+                </div>
+                <div class="theme-preview-empty" id="theme-preview-empty">Cole um JSON com <code>packageJson</code> na aba <strong>Body</strong> para ver o preview em tempo real.</div>
+                <div class="theme-preview" id="theme-preview" style="display:none">
+                  <header class="tp-header">
+                    <div class="tp-logo"><svg class="tp-logo-mark" viewBox="0 0 24 24" fill="currentColor"><path d="M13 2 3 14h8l-1 8 10-12h-8l1-8z"/></svg><span class="tp-logo-text">É<span class="tp-logo-gradient">nóis</span></span></div>
+                    <div class="tp-header-actions"><button class="tp-icon-btn">☀</button><button class="tp-login-btn">Entrar</button></div>
+                  </header>
+                  <div class="tp-body">
+                    <form class="tp-composer-card">
+                      <div class="tp-composer-top">
+                        <div class="tp-avatar">V</div>
+                        <div class="tp-composer-input-area">
+                          <div class="tp-toolbar">
+                            <button type="button" class="tp-tool">B</button><button type="button" class="tp-tool tp-tool-i">I</button>
+                            <button type="button" class="tp-tool tp-tool-s">S</button><button type="button" class="tp-tool">H</button>
+                            <button type="button" class="tp-tool">≡</button><button type="button" class="tp-tool">"</button>
+                            <button type="button" class="tp-tool">&lt;/&gt;</button><button type="button" class="tp-tool">↗</button>
+                            <button type="button" class="tp-tool">◉</button><button type="button" class="tp-tool">☺</button>
+                          </div>
+                          <div class="tp-textarea">Compartilhe algo que aprendeu hoje...</div>
+                          <div class="tp-char-counter">0 / 1.200 caracteres</div>
+                        </div>
+                      </div>
+                      <div class="tp-composer-bottom">
+                        <div class="tp-pill-group"><span class="tp-pill">Sem assunto</span><span class="tp-pill">💡 Insight</span><span class="tp-pill">🖼 Mídia</span></div>
+                        <div class="tp-composer-actions"><button type="button" class="tp-btn-ghost">📅 Agendar</button><button type="button" class="tp-publish-btn">Publicar</button></div>
+                      </div>
+                    </form>
+                    <div class="tp-feed-tabs">
+                      <span class="tp-feed-tab active">Para você</span><span class="tp-feed-tab">Tudo</span>
+                      <span class="tp-feed-tab">Seguindo</span><span class="tp-feed-tab">Discussões</span><span class="tp-feed-tab">Projetos</span>
+                    </div>
+                    <article class="tp-post-card">
+                      <div class="tp-post-header">
+                        <div class="tp-avatar">M</div>
+                        <div class="tp-post-author-info"><div class="tp-post-author">mel santos</div><div class="tp-post-meta">@aminadojava · há 2h</div></div>
+                        <button class="tp-post-menu">⋯</button>
+                      </div>
+                      <div class="tp-post-content">Pessoal. Post pra coletar ideias de melhoria e correções de bug. Tem coisa subindo entre hoje e amanhã mas quero ouvir todo mundo.</div>
+                      <div class="tp-post-footer"><button class="tp-action">❤ 26</button><button class="tp-action">💬 26</button><button class="tp-action">🔖 2</button><button class="tp-action">↗ 4</button></div>
+                    </article>
+                    <article class="tp-post-card">
+                      <div class="tp-post-header">
+                        <div class="tp-avatar tp-avatar-alt">S</div>
+                        <div class="tp-post-author-info"><div class="tp-post-author">sergio tomas</div><div class="tp-post-meta">@sergio-de-souza-tomas · há 3h</div></div>
+                        <button class="tp-post-menu">⋯</button>
+                      </div>
+                      <div class="tp-post-content">Opa eu notei que agora dá pra editar os posts direto no feed, ficou muito mais prático!</div>
+                      <div class="tp-post-footer"><button class="tp-action">❤ 18</button><button class="tp-action">💬 12</button><button class="tp-action">🔖 1</button><button class="tp-action">↗ 2</button></div>
+                    </article>
+                    <div class="tp-feed-end">Você chegou ao fim ✨</div>
+                    <div class="tp-badge-row">
+                      <span class="tp-badge tp-badge-success">✓ Sucesso</span>
+                      <span class="tp-badge tp-badge-warning">! Aviso</span>
+                      <span class="tp-badge tp-badge-error">✗ Erro</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+        <section class="panel response-panel">
+          <header class="response-header">
+            <h3 class="panel-title">Resposta</h3>
+            <div id="response-meta" class="response-meta"><span class="meta-empty">Aguardando...</span></div>
+            <div id="badges" class="badges"></div>
+            <button id="copy-response" class="copy-btn" title="Copiar body">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="icon-sm">
+                <rect width="14" height="14" x="8" y="8" rx="2"/>
+                <path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/>
+              </svg>
+              Copiar
+            </button>
+          </header>
+          <nav class="tabs" data-tabs="response">
+            <button class="tab active" data-tab="body">Body</button>
+            <button class="tab" data-tab="headers">Headers</button>
+          </nav>
+          <div class="tab-content">
+            <div data-tab-content="body"><pre id="response" class="code-output"><span class="empty-state">Selecione um endpoint e clique em Enviar.</span></pre></div>
+            <div data-tab-content="headers" class="hidden"><pre id="response-headers" class="code-output"><span class="empty-state">—</span></pre></div>
+          </div>
+        </section>
+      </main>
+    </div>
+  </div>
+
+  <div id="confirm-modal" class="confirm-modal">
+    <div class="confirm-backdrop"></div>
+    <div class="confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="confirm-title" aria-describedby="confirm-message">
+      <div class="confirm-icon" aria-hidden="true">🎭</div>
+      <h3 class="confirm-title" id="confirm-title">Confirmar</h3>
+      <p class="confirm-message" id="confirm-message">…</p>
+      <div class="confirm-actions">
+        <button type="button" id="confirm-cancel" class="confirm-btn confirm-btn-secondary">Cancelar</button>
+        <button type="button" id="confirm-ok" class="confirm-btn confirm-btn-primary">Confirmar</button>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="/main.ts"></script>
+</body>
+</html>
