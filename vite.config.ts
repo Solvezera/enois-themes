@@ -6,14 +6,17 @@ const host = process.env.TAURI_DEV_HOST;
 
 // https://vite.dev/config/
 export default defineConfig(() => ({
-  // ⬇️ ESSENCIAL: o Vite precisa saber que o "root" é `src/`
   root: "src",
 
+  // Garante que o build final vai para `dist/` na raiz do projeto
+  // (fora do `root`), que é o que o Tauri espera em `frontendDist`.
+  build: {
+    outDir: "../dist",
+    emptyOutDir: true,
+  },
+
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
-  //
-  // 1. prevent Vite from obscuring rust errors
   clearScreen: false,
-  // 2. tauri expects a fixed port, fail if that port is not available
   server: {
     port: 1420,
     strictPort: true,
@@ -26,7 +29,6 @@ export default defineConfig(() => ({
         }
       : undefined,
     watch: {
-      // 3. tell Vite to ignore watching `src-tauri`
       ignored: ["**/src-tauri/**"],
     },
   },

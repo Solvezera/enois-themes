@@ -37,7 +37,7 @@ const formatJsonBtn     = $<HTMLButtonElement>("format-json");
 const draftStatusEl     = $<HTMLSpanElement>("draft-status");
 
 /* ═══════════════════════════════════════
-   localStorage
+   localStorage keys
    ═══════════════════════════════════════ */
 const STORAGE = {
   TOKEN: "enois-themes.token",
@@ -50,6 +50,15 @@ const STORAGE = {
 
 const saveToken = (t: string) => localStorage.setItem(STORAGE.TOKEN, t);
 const loadToken = () => localStorage.getItem(STORAGE.TOKEN) ?? "";
+
+/* ═══════════════════════════════════════
+   Endpoints sensíveis (nunca persistir)
+   ═══════════════════════════════════════ */
+const SENSITIVE_ENDPOINT_IDS = ["auth-login", "auth-signup", "auth-2fa"];
+
+function isSensitiveEndpoint(ep: Endpoint | null): boolean {
+  return !!ep && SENSITIVE_ENDPOINT_IDS.includes(ep.id);
+}
 
 /* ═══════════════════════════════════════
    UUID / Toast
@@ -201,6 +210,10 @@ let hasUserEdits = false;
 
 function saveDraftNow(endpointId: string, silent = false) {
   if (!endpointId) return;
+
+  // 🔒 Endpoints de auth contêm senha no body — nunca persistir
+  if (SENSITIVE_ENDPOINT_IDS.includes(endpointId)) return;
+
   const draft: Draft = {
     body: bodyEl.value,
     extraHeaders: extraHeadersEl.value,
@@ -215,6 +228,9 @@ function saveDraftNow(endpointId: string, silent = false) {
 }
 
 function loadDraft(endpointId: string): Draft | null {
+  // 🔒 Defense in depth
+  if (SENSITIVE_ENDPOINT_IDS.includes(endpointId)) return null;
+
   try {
     const raw = localStorage.getItem(STORAGE.DRAFT_PREFIX + endpointId);
     if (!raw) return null;
@@ -224,6 +240,7 @@ function loadDraft(endpointId: string): Draft | null {
 
 function scheduleSaveDraft() {
   if (!currentEndpoint) return;
+  if (SENSITIVE_ENDPOINT_IDS.includes(currentEndpoint.id)) return;
   if (draftSaveTimer) clearTimeout(draftSaveTimer);
   draftSaveTimer = window.setTimeout(() => {
     if (currentEndpoint) saveDraftNow(currentEndpoint.id);
@@ -259,7 +276,7 @@ function responseKey(ep: Endpoint | null, url: string): string {
 }
 
 function saveResponse(ep: Endpoint | null, url: string, result: HttpResponse): CachedResponse {
-  const MAX = 200_000; // 200 KB por resposta
+  const MAX = 200_000;
   const trimmed = result.body.length > MAX
     ? result.body.slice(0, MAX) + "\n\n[…truncado]"
     : result.body;
@@ -274,24 +291,23 @@ function saveResponse(ep: Endpoint | null, url: string, result: HttpResponse): C
     time: timeNow(),
   };
 
+  // 🔒 Endpoints de auth: nunca persistir resposta
+  if (isSensitiveEndpoint(ep)) return cached;
+
   try {
     localStorage.setItem(responseKey(ep, url), JSON.stringify(cached));
-  } catch {
-    // Quota excedida — ignora silenciosamente
-  }
+  } catch {}
   return cached;
 }
 
 function loadResponse(ep: Endpoint | null, url: string): CachedResponse | null {
+  if (isSensitiveEndpoint(ep)) return null;
+
   try {
     const raw = localStorage.getItem(responseKey(ep, url));
     if (!raw) return null;
     return JSON.parse(raw) as CachedResponse;
   } catch { return null; }
-}
-
-function clearResponse(ep: Endpoint | null, url: string) {
-  localStorage.removeItem(responseKey(ep, url));
 }
 
 function renderCachedResponse(cached: CachedResponse) {
@@ -333,7 +349,7 @@ function statusInfo(s: number): { label: string; cls: string } {
 const timeNow = () => new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 
 /* ═══════════════════════════════════════
-   Preview endpoint
+   Preview endpoint (SÓ "Publicar tema")
    ═══════════════════════════════════════ */
 function isPreviewEndpoint(ep: Endpoint | null): boolean {
   return ep?.id === "themes-create";
@@ -492,7 +508,18 @@ function tryCaptureToken(ep: Endpoint | null, url: string, result: HttpResponse)
     try {
       const data = JSON.parse(result.body);
       if (typeof data.token === "string" && data.token) {
-        tokenEl.value = data.token; saveToken(data.token); updateAuthStatus();
+        tokenEl.value = data.token;
+        saveToken(data.token);
+        updateAuthStatus();
+
+        // 🔒 Limpa o body após login (senha não fica visível na tela)
+        if (isSensitiveEndpoint(ep)) {
+          bodyEl.value = "";
+          extraHeadersEl.value = "";
+          updateBodyHighlight();
+          hasUserEdits = false;
+        }
+
         showToast("🔐 Login realizado — token salvo automaticamente");
       }
     } catch {}
@@ -527,13 +554,19 @@ let history: HistoryEntry[] = [];
 
 function loadHistoryFromStorage(): HistoryEntry[] {
   try {
-    const raw = JSON.parse(localStorage.getItem(STORAGE.HISTORY) ?? "[]") as HistoryEntry[];
-    return raw.map((h) => ({ extraHeaders: "", ...h }));
+    const raw = JSON.parse(localStorage.getItem(STORAGE.HISTORY) ?? "[]") as Partial<HistoryEntry>[];
+    return raw.map((h) => ({
+      ...h,
+      extraHeaders: h.extraHeaders ?? "",
+    } as HistoryEntry));
   } catch { return []; }
 }
 const saveHistoryToStorage = () => localStorage.setItem(STORAGE.HISTORY, JSON.stringify(history.slice(0, 50)));
 
 function pushHistory(entry: HistoryEntry) {
+  // 🔒 Não persiste histórico de endpoints sensíveis
+  if (entry.endpointId && SENSITIVE_ENDPOINT_IDS.includes(entry.endpointId)) return;
+
   history.unshift(entry);
   if (history.length > 50) history.pop();
   saveHistoryToStorage();
@@ -564,7 +597,6 @@ function openHistory(h: HistoryEntry) {
   const ep = h.endpointId ? findEndpointById(h.endpointId) : null;
   if (ep) {
     currentEndpoint = ep;
-    // preserveResponse=true → não restaura o cache, vamos usar a resposta do histórico
     loadEndpoint(ep, true);
   } else {
     currentEndpoint = null;
@@ -580,8 +612,6 @@ function openHistory(h: HistoryEntry) {
   applyRequestTab("body");
   if (isPreviewEndpoint(currentEndpoint)) updateThemePreview();
   updateAuthStatus();
-
-  // Mostra a resposta DO HISTÓRICO (não do cache)
   renderResponse(h.responseBody, h.responseHeaders, h.status, h.duration);
   lastResponseMeta = { method: h.method, endpointName: h.endpointName, time: h.time };
   updateResponseMeta();
@@ -632,7 +662,7 @@ function updateResponseMeta() {
 }
 
 /* ═══════════════════════════════════════
-   Load endpoint (com draft + resposta em cache)
+   Load endpoint
    ═══════════════════════════════════════ */
 let currentEndpoint: Endpoint | null = null;
 
@@ -671,7 +701,6 @@ function loadEndpoint(ep: Endpoint, preserveResponse = false) {
   (document.querySelector('.tabs[data-tabs="request"] [data-tab="body"]') as HTMLButtonElement)?.classList.add("active");
   applyRequestTab("body");
 
-  // ✨ Restaura resposta específica deste endpoint (ou limpa se nunca chamado)
   if (!preserveResponse) {
     const cached = loadResponse(ep, BASE_URL + ep.path);
     if (cached) {
@@ -711,18 +740,128 @@ function renderResponse(body: string, headers: Record<string, string>, status: n
 }
 
 /* ═══════════════════════════════════════
-   Normalização do body (packageJson → string)
+   Palette deriver — preenche campos exigidos pela API
+   que os presets antigos não têm (surface, popover, etc.)
+   ═══════════════════════════════════════ */
+function isValidHexColor(c: any): boolean {
+  return typeof c === "string" && /^#[0-9a-fA-F]{3,8}$/.test(c.trim());
+}
+
+function safeColor(value: any, fallback: string): string {
+  return isValidHexColor(value) ? value.trim() : fallback;
+}
+
+function deriveFullPalette(p: Record<string, any>): Record<string, any> {
+  const bg         = safeColor(p.background, "#1e1e2e");
+  const fg         = safeColor(p.foreground, "#cdd6f4");
+  const card       = safeColor(p.card, bg);
+  const cardFg     = safeColor(p.cardForeground, fg);
+  const primary    = safeColor(p.primary, "#cba6f7");
+  const primaryFg  = safeColor(p.primaryForeground, bg);
+  const accent     = safeColor(p.accent, card);
+  const border     = safeColor(p.border, "#585b70");
+  const borderSoft = safeColor(p.borderSoft, accent);
+  const input      = safeColor(p.input, accent);
+  const success    = safeColor(p.success, "#a6e3a1");
+  const warning    = safeColor(p.warning, "#f9e2af");
+  const error      = safeColor(p.error, "#f38ba8");
+  const placeholder = safeColor(p.placeholder, "#6c7086");
+  const muted      = safeColor(p.muted, accent);
+  const mutedFg    = safeColor(p.mutedForeground, fg);
+  const sidebar    = safeColor(p.sidebar, card);
+  const sidebarFg  = safeColor(p.sidebarForeground, fg);
+
+  const userText = (p.text && typeof p.text === "object") ? p.text : {};
+  const text = {
+    primary:   safeColor(userText.primary, fg),
+    strong:    safeColor(userText.strong, fg),
+    subtle:    safeColor(userText.subtle, mutedFg),
+    disabled:  safeColor(userText.disabled, placeholder),
+    onPrimary: safeColor(userText.onPrimary, primaryFg),
+    inverse:   safeColor(userText.inverse, primaryFg),
+    link:      safeColor(userText.link, primary),
+  };
+
+  return {
+    background: bg,
+    foreground: fg,
+    surface: safeColor(p.surface, input),
+    surface1: safeColor(p.surface1, card),
+    surface2: safeColor(p.surface2, card),
+    surface3: safeColor(p.surface3, border),
+    surfaceCard: safeColor(p.surfaceCard, card),
+    card,
+    cardForeground: cardFg,
+    popover: safeColor(p.popover, card),
+    popoverForeground: safeColor(p.popoverForeground, cardFg),
+    border,
+    borderSoft,
+    input,
+    primary,
+    primaryForeground: primaryFg,
+    primaryText: safeColor(p.primaryText, primary),
+    primarySoft: safeColor(p.primarySoft, accent),
+    secondary: safeColor(p.secondary, accent),
+    secondaryForeground: safeColor(p.secondaryForeground, fg),
+    accent,
+    accentForeground: safeColor(p.accentForeground, fg),
+    destructive: safeColor(p.destructive, error),
+    destructiveForeground: safeColor(p.destructiveForeground, primaryFg),
+    success,
+    warning,
+    error,
+    growth: safeColor(p.growth, success),
+    growthForeground: safeColor(p.growthForeground, primaryFg),
+    opportunity: safeColor(p.opportunity, warning),
+    opportunityForeground: safeColor(p.opportunityForeground, primaryFg),
+    muted,
+    mutedForeground: mutedFg,
+    ring: safeColor(p.ring, primary),
+    textDate: safeColor(p.textDate, mutedFg),
+    placeholder,
+    sidebar,
+    sidebarForeground: sidebarFg,
+    sidebarBorder: safeColor(p.sidebarBorder, borderSoft),
+    text,
+  };
+}
+
+/* ═══════════════════════════════════════
+   Normalização do body (packageJson + palette completa)
    ═══════════════════════════════════════ */
 function normalizeThemeBody(rawBody: string): string {
   if (!rawBody) return rawBody;
   try {
     const parsed = JSON.parse(rawBody);
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return rawBody;
-    let changed = false;
-    if (parsed.packageJson && typeof parsed.packageJson === "object") { parsed.packageJson = JSON.stringify(parsed.packageJson); changed = true; }
-    if (parsed.palette && !parsed.packageJson) { parsed.packageJson = JSON.stringify({ palette: parsed.palette }); delete parsed.palette; changed = true; }
-    return changed ? JSON.stringify(parsed) : rawBody;
-  } catch { return rawBody; }
+
+    // Extrai palette de packageJson (objeto OU string) ou do root
+    let paletteInput: Record<string, any> | null = null;
+
+    if (parsed.packageJson) {
+      if (typeof parsed.packageJson === "string") {
+        try {
+          const pkg = JSON.parse(parsed.packageJson);
+          paletteInput = pkg.palette ?? pkg;
+        } catch {}
+      } else if (typeof parsed.packageJson === "object") {
+        paletteInput = parsed.packageJson.palette ?? parsed.packageJson;
+      }
+    } else if (parsed.palette) {
+      paletteInput = parsed.palette;
+    }
+
+    if (paletteInput && typeof paletteInput === "object") {
+      const fullPalette = deriveFullPalette(paletteInput);
+      parsed.packageJson = JSON.stringify({ palette: fullPalette });
+      delete parsed.palette;
+      return JSON.stringify(parsed);
+    }
+
+    return rawBody;
+  } catch {
+    return rawBody;
+  }
 }
 
 /* ═══════════════════════════════════════
@@ -760,7 +899,6 @@ async function sendRequest() {
 
     renderResponse(result.body, result.headers, result.status, result.duration_ms);
 
-    // ✨ Salva a resposta específica deste endpoint
     const cached = saveResponse(currentEndpoint, url, result);
 
     if (isPreviewEndpoint(currentEndpoint)) {
@@ -783,7 +921,6 @@ async function sendRequest() {
       responseBody: trimmed, responseHeaders: result.headers,
     });
 
-    // Usa o time do cache (mesmo timestamp do histórico)
     lastResponseMeta = { method: cached.method, endpointName: cached.endpointName, time: cached.time };
     updateResponseMeta();
     tryCaptureToken(currentEndpoint, url, result);
@@ -939,6 +1076,30 @@ setupTabs("request");
 setupTabs("response");
 setupSidebarTabs();
 populatePresets();
+
+/* ═══════════════════════════════════════
+   Migração de segurança — apaga senhas residuais
+   ═══════════════════════════════════════ */
+function migrateSensitiveData() {
+  SENSITIVE_ENDPOINT_IDS.forEach((id) => {
+    localStorage.removeItem(STORAGE.DRAFT_PREFIX + id);
+    localStorage.removeItem(STORAGE.RESPONSE_PREFIX + id);
+  });
+
+  try {
+    const raw = localStorage.getItem(STORAGE.HISTORY);
+    if (!raw) return;
+    const hist = JSON.parse(raw) as any[];
+    const cleaned = hist.map((h) =>
+      SENSITIVE_ENDPOINT_IDS.includes(h.endpointId)
+        ? { ...h, requestBody: "[redacted]", responseBody: "[redacted]" }
+        : h
+    );
+    localStorage.setItem(STORAGE.HISTORY, JSON.stringify(cleaned));
+  } catch {}
+}
+
+migrateSensitiveData();
 
 /* ═══════════════════════════════════════
    Boot
